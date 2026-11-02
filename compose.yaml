@@ -1,0 +1,66 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-legal_assistant}
+      MYSQL_USER: ${MYSQL_USER:-legal_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes: ["mysql_data:/var/lib/mysql"]
+    ports: ["127.0.0.1:3306:3306"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+  chroma:
+    image: chromadb/chroma:1.5.9
+    volumes: ["chroma_data:/data"]
+    ports: ["127.0.0.1:8100:8000"]
+    restart: unless-stopped
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      DATA_DIR: /app/data
+      SHARED_ENV_PATH: /run/secrets/bailian.env
+    volumes:
+      - ./data:/app/data
+      - ../../.env:/run/secrets/bailian.env:ro
+    ports: ["127.0.0.1:8091:8091"]
+    depends_on:
+      mysql: {condition: service_healthy}
+      chroma: {condition: service_started}
+    restart: unless-stopped
+  worker:
+    build: ./backend
+    command: ["python", "-m", "app.worker"]
+    env_file: .env
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      DATA_DIR: /app/data
+      SHARED_ENV_PATH: /run/secrets/bailian.env
+    volumes:
+      - ./data:/app/data
+      - ../../.env:/run/secrets/bailian.env:ro
+    depends_on:
+      mysql: {condition: service_healthy}
+      chroma: {condition: service_started}
+    restart: unless-stopped
+  frontend:
+    build: ./frontend
+    ports: ["127.0.0.1:5174:80"]
+    depends_on: [backend]
+    restart: unless-stopped
+volumes:
+  mysql_data:
+  chroma_data:
